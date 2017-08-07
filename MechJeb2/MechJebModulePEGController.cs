@@ -17,8 +17,10 @@ namespace MuMech
         // target
         public Orbit target { get; set; }
 
-        public double stageLowDVLimit = 20;
-        public double terminalGuidanceTime = 10;
+        [Persistent(pass = (int)(Pass.Type | Pass.Global))]
+        public EditableDouble stageLowDVLimit = new EditableDouble(20);
+        [Persistent(pass = (int)(Pass.Type | Pass.Global))]
+        public EditableDouble terminalGuidanceTime = new EditableDouble(10);
 
         public Vector3d lambda { get; private set; }
         public Vector3d lambdaDot { get; private set; }
@@ -68,9 +70,22 @@ namespace MuMech
         private double L;
         private double J;
 
-        public List<StageInfo> stages;
+        public List<StageInfo> stages = new List<StageInfo>();
 
         private double lastTime = 0.0;
+
+        /* converts PeA + ApA into rdval/vdval for periapsis insertion */
+        public void PeriapsisInsertion(double PeA, double ApA)
+        {
+            rdval = mainBody.Radius + PeA;
+
+            double sma = (PeA + 2 * mainBody.Radius + ApA) / 2;
+            if ( ApA >= 0 && ApA < PeA )
+                sma = PeA + mainBody.Radius;
+
+            vdval = Math.Sqrt( mainBody.gravParameter * ( 2 / PeA - 1 / sma ) );
+            gamma = 0;
+        }
 
         private void converge()
         {
@@ -85,7 +100,7 @@ namespace MuMech
                 tgo -= dt;
                 lambda += lambdaDot * dt;
                 iF = ( lambda - lambdaDot * J / L ).normalized; // FIXME: J and L need to be updating continuously?
-                Debug.Log("tgo = " + tgo);
+                UpdateStages();
                 // FIXME: should decrement vgo here as well as update() or move to top of this loop
             }
             else
@@ -107,9 +122,7 @@ namespace MuMech
         private void update()
         {
             double gm = mainBody.gravParameter;
-            //target = FlightGlobals.GetBodyByName("Moon").orbit;
-            // fixed 185x185
-            rdval = 6371000 + 185000;
+            // FIXME: fixed 185x185
             vdval = Math.Sqrt( gm / rdval);
             gamma = 0;
 
@@ -145,6 +158,7 @@ namespace MuMech
 
             // need accurate stage information before thrust integrals, Li is just dV so we read it from MJ
             UpdateStages();
+            log_stages();
 
             // find out how many stages we really need and clean up the Li (dV) and dt of the upper stage
             double vgo_temp_mag = vgo.magnitude;
@@ -265,6 +279,7 @@ namespace MuMech
 
             Debug.Log("tgo = " + tgo + " pitch = " + pitch + " heading = " + heading);
             log_stages();
+
             if ( Math.Abs(( tgo - tgo_prev ) / tgo_prev) < 0.01 )
                 converged = true;
         }
@@ -285,6 +300,11 @@ namespace MuMech
                 vf = vf - dt * mainBody.gravParameter * rf / (rfm * rfm * rfm );
                 rf = rf + dt * vf;
             }
+        }
+
+        public void ResetStaging()
+        {
+            stages = new List<StageInfo>();
         }
 
         private int MatchInOldStageList(int i)

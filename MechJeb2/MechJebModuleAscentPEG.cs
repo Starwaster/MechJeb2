@@ -24,8 +24,6 @@ namespace MuMech
         [Persistent(pass = (int)(Pass.Type | Pass.Global))]
         public EditableDoubleMult terminalGuidanceSecs = new EditableDoubleMult(10);
         [Persistent(pass = (int)(Pass.Type | Pass.Global))]
-        public EditableDoubleMult stageLowDVLimit = new EditableDoubleMult(20);
-        [Persistent(pass = (int)(Pass.Type | Pass.Global))]
 
         /* this deliberately does not persist, it is for emergencies only */
         public EditableDoubleMult pitchBias = new EditableDoubleMult(0);
@@ -69,6 +67,7 @@ namespace MuMech
 
         private void setTarget()
         {
+            /* FIXME: inclination with no target */
             if ( core.target.NormalTargetExists )
             {
                 peg.target = core.target.TargetOrbit;
@@ -77,6 +76,7 @@ namespace MuMech
             {
                 peg.target = null;
             }
+            peg.PeriapsisInsertion(autopilot.desiredOrbitAltitude, desiredApoapsis);
         }
 
         private void attitudeToPEG(double pitch)
@@ -113,15 +113,16 @@ namespace MuMech
         private void DriveInitiateTurn(FlightCtrlState s)
         {
             if (autopilot.autoThrottle) core.thrust.targetThrottle = 1.0F;
-            if (autopilot.MET > pitchEndTime)
+
+            double dt = autopilot.MET - pitchStartTime;
+            double theta = dt * pitchRate;
+            double pitch = 90 - theta + pitchBias;
+
+            if (autopilot.MET > pitchEndTime || pitch < peg.pitch)
             {
                 mode = AscentMode.GRAVITY_TURN;
                 return;
             }
-
-            double dt = autopilot.MET - pitchStartTime;
-            double theta = dt * pitchRate;
-            attitudeToPEG(Math.Min(90, 90 - theta + pitchBias));
 
             status = String.Format("Pitch program {0:F2} s", pitchEndTime - pitchStartTime - dt);
         }
