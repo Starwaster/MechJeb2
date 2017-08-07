@@ -122,9 +122,6 @@ namespace MuMech
         private void update()
         {
             double gm = mainBody.gravParameter;
-            // FIXME: fixed 185x185
-            vdval = Math.Sqrt( gm / rdval);
-            gamma = 0;
 
             // vector position of vessel in ECI
             Vector3d r = vesselState.CoM - vessel.mainBody.position;
