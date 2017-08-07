@@ -375,13 +375,19 @@ namespace MuMech
             return 90.0 - Vector3d.Angle(vesselState.surfaceVelocity, vesselState.up);
         }
 
-        // provides AoA limiting and ground track steering to pitch controllers (possibly should be moved into the attitude controller, but
-        // right now it collaborates too heavily with the ascent autopilot)
-        //
+        // this provides ground track heading based on desired inclination and is what most consumers should call
         protected void attitudeTo(double desiredPitch)
         {
             double desiredHeading = OrbitalManeuverCalculator.HeadingForLaunchInclination(vessel, vesselState, autopilot.desiredInclination);
+            attitudeTo(desiredPitch, desiredHeading);
+        }
 
+        // provides AoA limiting and roll control
+        // provides no ground tracking and should only be called by autopilots like PEG that deeply know what they're doing with yaw control
+        // (possibly should be moved into the attitude controller, but right now it collaborates too heavily with the ascent autopilot)
+        //
+        protected void attitudeTo(double desiredPitch, double desiredHeading)
+        {
             Vector3d desiredHeadingVector = Math.Sin(desiredHeading * UtilMath.Deg2Rad) * vesselState.east + Math.Cos(desiredHeading * UtilMath.Deg2Rad) * vesselState.north;
 
             Vector3d desiredThrustVector = Math.Cos(desiredPitch * UtilMath.Deg2Rad) * desiredHeadingVector
