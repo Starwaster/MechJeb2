@@ -38,12 +38,7 @@ namespace MuMech
 
         public override void OnModuleEnabled()
         {
-            terminalGuidance = false;
-            initialized = false;
-            converged = false;
-            // FIXME: we need to add liveStats to vacStats and atmoStats from MechJebModuleStageStats so we don't have to force liveSLT here
-            stats.liveSLT = true;
-            stages = new List<StageInfo>();
+            Reset();
         }
 
         public override void OnModuleDisabled()
@@ -52,6 +47,8 @@ namespace MuMech
 
         public override void OnFixedUpdate()
         {
+            // FIXME: we need to add liveStats to vacStats and atmoStats from MechJebModuleStageStats so we don't have to force liveSLT here
+            stats.liveSLT = true;
             stats.RequestUpdate(this, true);
             if (enabled)
                converge();
@@ -77,13 +74,18 @@ namespace MuMech
         /* converts PeA + ApA into rdval/vdval for periapsis insertion */
         public void PeriapsisInsertion(double PeA, double ApA)
         {
-            rdval = mainBody.Radius + PeA;
+            double PeR = mainBody.Radius + PeA;
+            double ApR = mainBody.Radius + ApA;
 
-            double sma = (PeA + 2 * mainBody.Radius + ApA) / 2;
+            rdval = PeR;
+
+            double sma = (PeR + ApR) / 2;
+
+            /* remap nonsense ApAs onto circular orbits */
             if ( ApA >= 0 && ApA < PeA )
-                sma = PeA + mainBody.Radius;
+                sma = PeR;
 
-            vdval = Math.Sqrt( mainBody.gravParameter * ( 2 / PeA - 1 / sma ) );
+            vdval = Math.Sqrt( mainBody.gravParameter * ( 2 / PeR - 1 / sma ) );
             gamma = 0;
         }
 
@@ -122,6 +124,7 @@ namespace MuMech
         private void update()
         {
             double gm = mainBody.gravParameter;
+            Debug.Log("rdval = " + rdval + " vdval = " + vdval + " gamma = " + gamma);
 
             // vector position of vessel in ECI
             Vector3d r = vesselState.CoM - vessel.mainBody.position;
@@ -299,9 +302,19 @@ namespace MuMech
             }
         }
 
-        public void ResetStaging()
+        public void Reset()
         {
+            terminalGuidance = false;
+            initialized = false;
+            converged = false;
             stages = new List<StageInfo>();
+            tgo = 0.0;
+            rbias = new Vector3d();
+            rd = new Vector3d();
+            vgo = new Vector3d();
+            vprev = new Vector3d();
+            rgrav = new Vector3d();
+            cser = new Vector3d();
         }
 
         private int MatchInOldStageList(int i)

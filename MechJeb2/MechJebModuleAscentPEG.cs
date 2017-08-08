@@ -123,6 +123,7 @@ namespace MuMech
                 mode = AscentMode.GRAVITY_TURN;
                 return;
             }
+            attitudeTo(pitch);
 
             status = String.Format("Pitch program {0:F2} s", pitchEndTime - pitchStartTime - dt);
         }

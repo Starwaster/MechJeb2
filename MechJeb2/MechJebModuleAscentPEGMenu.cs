@@ -51,8 +51,8 @@ namespace MuMech
             GUILayout.Label(String.Format("ending pitch: {0:F1}°", 90.0 - (path.pitchEndTime - path.pitchStartTime)*path.pitchRate));
             GuiUtils.SimpleTextBox("Terminal Guidance Period:", path.terminalGuidanceSecs, "s");
             GUILayout.Label("Stage Stats");
-            if (GUILayout.Button("Reset Stage Analysis"))
-                peg.ResetStaging();
+            if (GUILayout.Button("Reset PEG"))
+                peg.Reset();
             GuiUtils.SimpleTextBox("Stage Minimum dV Limit:", peg.stageLowDVLimit, "m/s");
 
             for(int i = peg.stages.Count - 1; i >= 0; i--) {
