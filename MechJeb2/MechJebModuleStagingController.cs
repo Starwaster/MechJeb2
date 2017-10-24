@@ -20,9 +20,9 @@ namespace MuMech
         public EditableDouble autostagePostDelay = 1.0;
         [Persistent(pass = (int)Pass.Type)]
         public EditableInt autostageLimit = 0;
-        [Persistent(pass = (int)Pass.Type)]
+        [Persistent(pass = (int)(Pass.Type | Pass.Global))]
         public EditableDoubleMult fairingMaxDynamicPressure = new EditableDoubleMult(5000, 1000);
-        [Persistent(pass = (int)Pass.Type)]
+        [Persistent(pass = (int)(Pass.Type | Pass.Global))]
         public EditableDoubleMult fairingMinAltitude = new EditableDoubleMult(50000, 1000);
 
         public bool autostagingOnce = false;
@@ -103,7 +103,7 @@ namespace MuMech
                     return;
 
                 //only release launch clamps if we're at nearly full thrust
-                if (vesselState.thrustCurrent / vesselState.thrustAvailable < 1/1.1 &&
+                if (vesselState.thrustCurrent / vesselState.thrustAvailable < 0.99 &&
                     InverseStageReleasesClamps(StageManager.CurrentStage - 1, vessel))
                     return;
             }
@@ -263,7 +263,7 @@ namespace MuMech
             }
             return false;
         }
-        
+
         //determine if there are chutes being fired that wouldn't also get decoupled
         public static bool HasStayingChutes(int inverseStage, Vessel v)
         {
