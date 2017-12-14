@@ -113,8 +113,8 @@ namespace MuMech
         public double tgo_prev;     // time for last full converge
         public Vector3d vgo;        // velocity remaining to be gained
         private Vector3d rd;        // burnout position vector
-        private Vector3d rgrav;
         private Vector3d rbias;
+        private Vector3d rthrust;
         // following for graphing + stats
         private Vector3d vd;
         private Vector3d rp;
@@ -315,6 +315,7 @@ namespace MuMech
             if (status != PegStatus.FAILED)
                 status = PegStatus.CONVERGED;
 
+            Debug.Log("============= UPDATE DONE =============");
             last_PEG = vesselState.time;
         }
 
@@ -346,9 +347,9 @@ namespace MuMech
                 vp = v;
                 t_lambda = vesselState.time;
                 rbias = Vector3d.zero;
+                rthrust = Vector3d.zero;
                 vgo = Vector3d.zero;
                 tgo = 1;
-                rgrav = -vesselState.orbitalPosition * Math.Sqrt( gm / ( rm * rm * rm ) ) / 2.0;
                 corrector();
             }
 
@@ -375,7 +376,6 @@ namespace MuMech
                   vgo_temp_mag -= stages[i].Li;
                 }
             }
-
 
             // zero out all the upper stages
             for(int i = last_stage + 1; i < stages.Count; i++)
@@ -423,10 +423,13 @@ namespace MuMech
             // steering
             lambda = vgo.normalized;
 
-            if ( status != PegStatus.INITIALIZING )
-                rgrav = tgo * tgo / ( tgo_prev * tgo_prev ) * rgrav;
-
-            Vector3d rgo = rd - ( r + v * tgo + rgrav ) + rbias;
+            // rgo from rd without rgrav from jaggers
+            double theta1 = tgo * Math.Sqrt( gm / (rm * rm * rm )) / 2.0;
+            double rpm = rp.magnitude;
+            double theta2 = tgo * Math.Sqrt( gm / (rpm * rpm * rpm )) / 2.0;
+            double T1 = Math.Tan(theta1) / theta1;
+            double T2 = Math.Tan(theta2) / theta2;
+            Vector3d rgo = rd / T2 - r / T1 - tgo * ( v + vd - vgo ) / 2.0;
 
             // from Jaggers 1977, not clear if you still should orthogonolize this (below) or not
             if ( imode == IncMode.FREE_LAN && tgo > 40 && isStable() )
@@ -436,31 +439,26 @@ namespace MuMech
                 rgo = S * lambda + Q1 * ip;
             }
 
-            if (false)
-            //if (tmode == TargetMode.ORBIT)
-            {
-                // McHenry 1979: pin in-plane lambdaDot and use cross product steering for lambdaDot_y to zero out of plane miss
-                double lambdaDot_xz = 0.35 * Math.Sqrt( gm / ( rm * rm * rm ) );
-                lambdaDot = lambdaDot_xz * ( Vector3d.Cross( lambda, iy ) );
-                rgo = S * lambda + QT * lambdaDot;
-            } else {
-                // orthogonality:  S = Vector3d.Dot(lambda, rgo)
-                rgo = rgo + ( S - Vector3d.Dot(lambda, rgo) ) * lambda;
-                if ( QT == 0 )
-                    lambdaDot = Vector3d.zero;
-                else
-                    // this comes from rgo = S * lambda + QT * lambdaDot (simplified rthrust)
-                    lambdaDot = ( rgo - S * lambda ) / QT;
-            }
+            // orthogonalize
+            rgo = rgo + ( S - Vector3d.Dot(lambda, rgo) ) * lambda;
+            if ( QT == 0 )
+                lambdaDot = Vector3d.zero;
+            else
+                // this comes from rgo = S * lambda + QT * lambdaDot (simplified rthrust)
+                lambdaDot = ( rgo - S * lambda ) / QT;
+
+            // lambdaDot = Vector3d.zero;
 
             double ldm = lambdaDot.magnitude;
+            if (ldm < 1e-8)
+                ldm = 1e-8;
 
-            // rthrust + vthrust expansions are only valid over +/- 45 degrees
+            // linear tangent guidance is only valid over +/- 90
             double phiMax = 45.0 * UtilMath.Deg2Rad;
 
             if (tmode == TargetMode.ORBIT)
+                // FIXME? only clamp xz and not y?
                 phiMax = K * 0.35 * Math.Sqrt( gm / ( rm * rm * rm ) );
-
 
             if ( lambdaDot.magnitude > phiMax / K )
             {
@@ -469,47 +467,41 @@ namespace MuMech
                 rgo = S * lambda + QT * lambdaDot;
             }
 
-            Debug.Log("lambdaDot_xz = " + Vector3d.Dot(lambdaDot, ix) + " lambdaDot_y = " + Vector3d.Dot(lambdaDot, iy));
-
+            Debug.Log("ldm = " + ldm + " ldm * K = " + (ldm * K ) );
             t_lambda = vesselState.time + Math.Tan( ldm * K ) / ldm;
+            Debug.Log("t_lambda = " + t_lambda);
 
-            Vector3d vthrust, rthrust;
+            Vector3d u = lambda + lambdaDot * (vesselState.time - t_lambda);
 
-            if (false)
-            //if (tmode == TargetMode.ORBIT)
+            var integrator = new RKF45.CentralForceThrust();
+
+            Debug.Log("u = " + u + " lambdaDot = " + lambdaDot);
+            Debug.Log("--- START ---");
+            integrator.t = 0;
+            integrator.r = r;
+            integrator.v = v;
+            integrator.lambda = - u;
+            integrator.lambdaDot = - lambdaDot;
+            integrator.mu = gm;
+
+            for(int i = 0; i <= last_stage; i++)
             {
-                vthrust = vgo;
-                rthrust = rgo;
-                rbias = Vector3d.zero;
-            }
-            else
-            {
-                vthrust = lambda * ( L - ldm * ldm * ( H - J * K ) / 2.0 );
-                rthrust = lambda * ( S - ldm * ldm * ( P - 2.0 * Q * K + S * K * K ) / 2.0 ) + QT * lambdaDot;
-                rbias = rgo - rthrust;
+                Debug.Log("---- STAGE " + i + "----");
+                integrator.isp = stages[i].isp;
+                integrator.thrust = stages[i].thrust;
+                integrator.m = stages[i].mass;
+                integrator.mdot = stages[i].mdot;
+                integrator.integrate(integrator.t + stages[i].dt, 1e-5);
             }
 
-            Vector3d rc1 = r - rthrust / 10.0 - vthrust * tgo / 30.0;
-            Vector3d vc1 = v + 1.2 * rthrust / tgo - vthrust/10.0;
+            Debug.Log("---- DONE ----");
 
-            Vector3d rc2, vc2;
+            rp = integrator.r;
+            vp = integrator.v;
 
-            //CSEKSP(rc1, vc1, tgo, out rc2, out vc2);
-            //ConicStateUtils.CSE(mainBody.gravParameter, rc1, vc1, tgo, out rc2, out vc2);
-            CSESimple(rc1, vc1, tgo, out rc2, out vc2);
-
-            Vector3d vgrav = vc2 - vc1;
-            rgrav = rc2 - rc1 - vc1 * tgo;
-
-            rp = r + v * tgo + rgrav + rthrust;
-            vp = v + vgo + vgrav;
-
-            /*
-            if (tmode == TargetMode.ORBIT)
-            {
-                ConicStateUtils.CSE(mainBody.gravParameter, rp, vp, deltaTcoast, out rp, out vp);
-            }
-            */
+            rthrust = rp - r;
+            //rbias = rgo - rthrust;
+            rbias = Vector3d.zero;
 
             // corrector
             Vector3d vmiss = corrector();
@@ -563,88 +555,6 @@ namespace MuMech
             return vmiss;
         }
 
-        /*
-         * r0: predicted position (rd = rp)?
-         * r1: desired target position
-         * C1, C2: horizontal and vertical velocity at desired position
-         * uin: Unit vector normal to the transfer plane and in the direction of the angular momentum of the transfer
-         */
-
-        private bool ltvcon(Vector3d r0, Vector3d r1, double C1, double C2, Vector3d uin, out Vector3d v0, out Vector3d v1, out double deltaT) {
-            v0 = v1 = Vector3d.zero;
-            deltaT = 0.0;
-            /* initialization */
-            double gm = mainBody.gravParameter;
-            double r0m = r0.magnitude;
-            double r1m = r1.magnitude;
-            Vector3d ur0 = r0.normalized;
-            Vector3d ur1 = r0.normalized;
-            double ctheta = Vector3d.Dot(ur0, ur1);
-            double stheta = Vector3d.Dot(Vector3d.Cross(ur0, ur1), uin);
-            double cr = (r1 - r0).magnitude;
-            double s = ( r0m + r1m + cr ) / 2.0;
-            double lambda = Math.Sign(stheta) * Math.Sqrt(1 - cr/s);
-            double rcirc = s/2.0;
-            double vcirc = gm / rcirc;
-
-            /* quadratic */
-            double A = ((r1m / r0m) - ctheta) - C2 * stheta;
-            double C = - (rcirc / r1m) * ( 1 - ctheta);
-            double B = - (C1/vcirc) * stheta;
-            double D = B * B - 4 * A * C;
-
-            if ( D < 0 )
-            {
-                Debug.Log("no solution from quadratic A = " + A + " B = " + B + " C = " + C + " D = " + D);
-                return false;
-            }
-
-            /* solve for initial and final velocity */
-            double vh1 = -2.0 * C / ( B + Math.Sqrt(D) );
-            double vh0 = (r1m / r0m) * vh1;
-            double vr1 = (C1 / vcirc) + C2 * vh1;
-            double vr0 = vr1 * ctheta - ( vh1 - ( rcirc / r1m ) / vh1 ) * stheta;
-            v0 = vcirc * ( vr0 * ur0 + vh0 * Vector3d.Cross( uin, ur0 ) );
-            v1 = vcirc * ( vr1 * ur1 + vh1 * Vector3d.Cross( uin, ur1 ) );
-
-            /* transtime */
-            double U = lambda * Math.Sqrt( s - r0m / s - r1m ) * vh0 - vr0;
-            double E = Math.Sqrt(1.0 - lambda * lambda * ( 1.0 - U * U ) ) - lambda * U;
-            double W = Math.Sqrt(1.0 + lambda + U * E / 2.0 );  /* unclear if this equation is transcribed correctly */
-            double WW = (W - 1 ) / (W + 1);
-            deltaT = (rcirc / vcirc ) * ( 4.0 * lambda * E + E*E*E/(W*W*W) * QM(W, WW));  /* unclear if (E/W)^3 is right */
-
-            return true;
-        }
-
-        double QM(double W, double WW) {
-            double F = 1.0;
-            double V = 1.0;
-            double X = 1.0;
-            int level = 3;
-            double Bn = 0;
-            double Bd = 15;
-
-            int i = 0;
-            while(true) {
-                double Fold = F;
-                level += 2;
-                Bn += level;
-                Bd = Bd + 4 * level;
-                X = Bd / ( Bd - Bn * WW * X );
-                V = ( X - 1 ) * V;
-                F = Fold + V;
-                if (Math.Abs(Fold - F) < 1e-15)
-                    break;
-                if ( i++ > 100 )
-                {
-                    Debug.Log("BOOM!");
-                    break;
-                }
-            }
-            Debug.Log("iterations = " + i );
-            return W + (1.0 - WW) * (5.0 - F * WW) / 15.0;
-        }
 
         List<Vector3d> CSEPoints = new List<Vector3d>();
 
@@ -723,7 +633,6 @@ namespace MuMech
             last_PEG = 0.0;
             last_call = 0.0;
             rd = Vector3d.zero;
-            rgrav = Vector3d.zero;
         }
 
         private int MatchInOldStageList(int i)
@@ -757,6 +666,7 @@ namespace MuMech
 
                 int k = stages[i].kspStage;
                 stages[i].parts = mjstats[k].parts;
+                stages[i].isp = mjstats[k].isp;
                 stages[i].ve = mjstats[k].isp * 9.80665;
                 stages[i].thrust = mjstats[k].startThrust;
                 stages[i].dt = mjstats[k].deltaTime;
@@ -804,6 +714,7 @@ namespace MuMech
             // vehicle data
             public double mdot;
             public double ve;
+            public double isp;
             public double thrust;
             public double mass;
             public double a0;
