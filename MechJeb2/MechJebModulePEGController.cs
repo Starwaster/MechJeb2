@@ -356,6 +356,10 @@ namespace MuMech
             if (vgo == Vector3d.zero)
                 vgo = v.normalized;
 
+            // debugging clamp
+            if (vgo.magnitude > 10000)
+                vgo = vgo.normalized * 10000;
+
             // need accurate stage information before thrust integrals, Li is just dV so we read it from MJ
             UpdateStages();
 
@@ -429,15 +433,17 @@ namespace MuMech
             double theta2 = tgo * Math.Sqrt( gm / (rpm * rpm * rpm )) / 2.0;
             double T1 = Math.Tan(theta1) / theta1;
             double T2 = Math.Tan(theta2) / theta2;
-            Vector3d rgo = rd / T2 - r / T1 - tgo * ( v + vd - vgo ) / 2.0;
+            Vector3d rgo = rd / T2 - r / T1 - tgo * ( v + vd - vgo ) / 2.0 + rbias;
 
             // from Jaggers 1977, not clear if you still should orthogonolize this (below) or not
+            /*
             if ( imode == IncMode.FREE_LAN && tgo > 40 && isStable() )
             {
                 Vector3d ip = Vector3d.Cross(lambda, iy).normalized;
                 double Q1 = Vector3d.Dot(rgo - Vector3d.Dot(lambda, rgo) * lambda, ip);
                 rgo = S * lambda + Q1 * ip;
             }
+            */
 
             // orthogonalize
             rgo = rgo + ( S - Vector3d.Dot(lambda, rgo) ) * lambda;
@@ -481,7 +487,7 @@ namespace MuMech
             integrator.r = r;
             integrator.v = v;
             integrator.lambda = - u;
-            integrator.lambdaDot = - lambdaDot;
+            integrator.lambdaDot = lambdaDot;
             integrator.mu = gm;
 
             for(int i = 0; i <= last_stage; i++)
@@ -491,7 +497,7 @@ namespace MuMech
                 integrator.thrust = stages[i].thrust;
                 integrator.m = stages[i].mass;
                 integrator.mdot = stages[i].mdot;
-                integrator.integrate(integrator.t + stages[i].dt, 1e-5);
+                integrator.integrate(integrator.t + stages[i].dt, 1e-5, 100);
             }
 
             Debug.Log("---- DONE ----");
@@ -500,8 +506,8 @@ namespace MuMech
             vp = integrator.v;
 
             rthrust = rp - r;
-            //rbias = rgo - rthrust;
-            rbias = Vector3d.zero;
+            rbias = rgo - rthrust;
+            //rbias = Vector3d.zero;
 
             // corrector
             Vector3d vmiss = corrector();
@@ -545,6 +551,7 @@ namespace MuMech
             Vector3d vmiss = vp - vd;
             vgo = vgo - 1.0 * vmiss;
 
+            /*
             if ( imode == IncMode.FREE_LAN && tgo > 40 && isStable() )
             {
                 // correct iy to fixed inc with free LAN
@@ -552,6 +559,7 @@ namespace MuMech
                 double SE = - 0.5 * ( Vector3d.Dot( -Planetarium.up, iy) + Math.Cos(incval * UtilMath.Deg2Rad) ) * Vector3d.Dot( -Planetarium.up, iz ) / (1 - d * d);
                 iy = ( iy * Math.Sqrt( 1 - SE * SE ) + SE * iz ).normalized;
             }
+            */
             return vmiss;
         }
 

@@ -120,13 +120,18 @@ namespace MuMech {
         }
 
         /* this integrates to t_end */
-        private static void rkf45(int n, Function f, double h, double t, double t_end, double[] xi, ref double[] xf, double T) {
+        private static void rkf45(int n, Function f, double h, double t, double t_end, double[] xi, ref double[] xf, double T, int maxI) {
             Array.Copy(xi, 0, xf, 0, n); // xf = xi
+            int i = 0;
+
             while (t < t_end) {
                 rkf45_step(n, f, ref h, ref t, t_end, ref xf, T);
                 var r = new Vector3d(xf[1], xf[2], xf[3]);
                 var v = new Vector3d(xf[4], xf[5], xf[6]);
                 Debug.Log(t + ": " + xf[0] + " " + r + "(" + r.magnitude + ") " + v + "(" + v.magnitude + ")" );
+                i++;
+                if (i >= maxI)
+                    return;  // FIXME: should probably throw
             }
         }
 
@@ -151,7 +156,7 @@ namespace MuMech {
             public double t;
 
             /* 3. turn the crank */
-            public void integrate(double t_end, double T) {
+            public void integrate(double t_end, double T, int maxI) {
                 double[] xi = new double[] {
                     m,
                     r.x, r.y, r.z,
@@ -160,7 +165,7 @@ namespace MuMech {
                     lambdaDot.x, lambdaDot.y, lambdaDot.z,
                 };
                 double[] xf = new double[13];
-                rkf45(13, EQMotion, 1.0, t, t_end, xi, ref xf, T);
+                rkf45(13, EQMotion, 1.0, t, t_end, xi, ref xf, T, maxI);
                 m = xf[0];
                 r = new Vector3d(xf[1], xf[2], xf[3]);
                 v = new Vector3d(xf[4], xf[5], xf[6]);
@@ -225,12 +230,12 @@ namespace MuMech {
                 double deltav = Math.Sqrt(mu/r0)*(Math.Sqrt(2.0 * r1/(r0+r1)) - 1.0);
                 double tburn = ( m * g0 * isp / thrust ) * ( 1 - Math.Exp( - deltav / (g0 * isp ) ) );
 
-                integrate(tburn, 1e-5);
+                integrate(tburn, 1e-5, 100);
 
                 double tcoast = 2.0 * Math.PI * Math.Sqrt( a * a * a / mu );
                 thrust = 0.0;
 
-                integrate(tcoast, 1e-5);
+                integrate(tcoast, 1e-5, 100);
             }
         }
     }
